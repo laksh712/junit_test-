@@ -1,0 +1,249 @@
+@Override
+protected void configure(HttpSecurity http) throws Exception {
+    http
+        .csrf().disable()
+        .cors().disable()
+        .authorizeRequests(authorize -> authorize
+            .antMatchers("/auth/admin/signup", "/auth/login", "/auth/user/signup").permitAll()
+            .antMatchers(HttpMethod.OPTIONS).permitAll()
+            .antMatchers("/auth/admin/addUser").hasRole("ADMIN")
+            .antMatchers("/auth/admin/userupdate/{id}").hasRole("ADMIN")
+            .antMatchers("/auth/users").hasRole("ADMIN")
+            .antMatchers("/auth/user/updateUser").hasRole("USER")
+            .anyRequest().authenticated()
+        )
+        .exceptionHandling().authenticationEntryPoint(authEntry)
+        .and()
+        .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+        .and()
+        .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+}
+
+=====================================================================================================
+
+import static org.mockito.Mockito.*;
+
+@RunWith(MockitoJUnitRunner.class)
+public class UserServiceTest {
+
+    @InjectMocks
+    private UserServiceImpl userService;
+
+    @Mock
+    private ModelMapper modelMapper;
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private RoleRepository roleRepository;
+
+    @Mock
+    private PasswordEncoder encoder;
+
+    @Test
+    public void testAddUser_Success() throws Exception {
+        SignUpDto signUpDto = new SignUpDto();
+        signUpDto.setEmail("test@example.com");
+        signUpDto.setPassword("password");
+        signUpDto.setName("Test User");
+        String role = "ROLE_USER";
+
+        User user = new User();
+        user.setEmail(signUpDto.getEmail());
+        user.setPassword(encoder.encode(signUpDto.getPassword()));
+        // Mocking repository methods
+        when(modelMapper.map(signUpDto, User.class)).thenReturn(user);
+        when(userRepository.existsByEmail(signUpDto.getEmail())).thenReturn(false);
+        when(roleRepository.findByName(role)).thenReturn(new Role(role));
+
+        String result = userService.addUser(signUpDto, role);
+
+        assertEquals("User Added !!", result);
+        verify(userRepository).save(any(User.class));
+    }
+
+    @Test(expected = Exception.class)
+    public void testAddUser_UserAlreadyExists() throws Exception {
+        SignUpDto signUpDto = new SignUpDto();
+        signUpDto.setEmail("test@example.com");
+        String role = "ROLE_USER";
+
+        when(userRepository.existsByEmail(signUpDto.getEmail())).thenReturn(true);
+
+        userService.addUser(signUpDto, role);
+    }
+
+    @Test(expected = Exception.class)
+    public void testAddUser_RoleNotFound() throws Exception {
+        SignUpDto signUpDto = new SignUpDto();
+        signUpDto.setEmail("test@example.com");
+        String role = "ROLE_USER";
+
+        when(userRepository.existsByEmail(signUpDto.getEmail())).thenReturn(false);
+        when(roleRepository.findByName(role)).thenReturn(null);
+
+        userService.addUser(signUpDto, role);
+    }
+
+    @Test
+    public void testGetUsers_Success() {
+        List<User> userList = new ArrayList<>();
+        userList.add(new User());
+        userList.add(new User());
+
+        when(userRepository.findAll()).thenReturn(userList);
+
+        List<User> result = userService.getUsers();
+
+        assertEquals(userList, result);
+    }
+
+    @Test
+    public void testUpdateUser_Success() throws Exception {
+        Long userId = 1L;
+        User updateUser = new User();
+        updateUser.setName("Updated Name");
+        updateUser.setUsername("updatedUsername");
+        updateUser.setEmail("updated@example.com");
+        updateUser.setPassword("updatedPassword");
+
+        User existingUser = new User();
+        existingUser.setId(userId);
+        // Mocking repository methods
+        when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
+        when(encoder.encode(updateUser.getPassword())).thenReturn(updateUser.getPassword());
+
+        User result = userService.updateUser(userId, updateUser);
+
+        assertEquals(updateUser.getName(), result.getName());
+        assertEquals(updateUser.getUsername(), result.getUsername());
+        assertEquals(updateUser.getEmail(), result.getEmail());
+        verify(userRepository).save(existingUser);
+    }
+
+    @Test(expected = Exception.class)
+    public void testUpdateUser_UserNotFound() throws Exception {
+        Long userId = 1L;
+        User updateUser = new User();
+
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
+
+        userService.updateUser(userId, updateUser);
+    }
+}
+
+==================================================================================
+
+// Assuming userService is a mock of UserServiceImpl
+
+when(userService.updateUser(anyLong(), any(User.class)))
+    .thenReturn(new User()); // Stubbing the method call
+====================================================================================
+
+@Test
+	public void updateUserTest() throws Exception {
+		System.out.println("In update user Test");
+		long userId = 22L;
+		User user = new User("abc", "xyz", "pune", "abc@gmail.com", "9867585738");
+
+		// Mocking behavior
+		when(userService.updateUser(userId, user)).thenReturn(user);
+
+		ResultActions resultActions = mockMvc.perform(put("/users/{userId}", userId)
+				.contentType(MediaType.APPLICATION_JSON).content(new ObjectMapper().writeValueAsString(user)));
+		// Verifying the response status
+		resultActions.andExpect(status().isOk());
+	}
+
+
+@Test
+public void meCall() throws Exception {
+    System.out.println("In meCall Method");
+    
+    UserDto userDto = new UserDto(1L, "test", "test", "test@gmail.com", "ROLE_ADMIN");
+    User user = modelMapper.map(userDto, User.class);
+    
+    // Mocking principal object
+    Principal principal = mock(Principal.class);
+    when(principal.getName()).thenReturn(userDto.getEmail());
+    
+    // Stubbing userService method call
+    when(userService.meCall(userDto.getEmail())).thenReturn(user);
+    
+    mockMvc.perform(get("/auth/me").principal(principal).contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(userDto.getId()))
+            .andExpect(jsonPath("$.name").value(userDto.getName()))
+            .andExpect(jsonPath("$.username").value(userDto.getUsername()))
+            .andExpect(jsonPath("$.email").value(userDto.getEmail()))
+            .andExpect(jsonPath("$.password").doesNotExist())
+            .andExpect(jsonPath("$.role").value(userDto.getRole()));
+}
+
+
+
+@Test
+public void meCall() throws Exception {
+    System.out.println("In meCall Method");
+    
+    UserDto userDto = new UserDto(1L, "test", "test", "test@gmail.com", "ROLE_ADMIN");
+    User user = modelMapper.map(userDto, User.class);
+    
+    // Mocking principal object
+    Principal principal = mock(Principal.class);
+    when(principal.getName()).thenReturn(userDto.getEmail());
+    
+    // Stubbing userService method call
+    when(userService.meCall(userDto.getEmail())).thenReturn(user);
+    
+    // Perform request and log response
+    MvcResult result = mockMvc.perform(get("/auth/me").principal(principal).contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn();
+    
+    String responseContent = result.getResponse().getContentAsString();
+    System.out.println("Response JSON: " + responseContent);
+    
+    // Validate JSON response using JSONPath assertions
+    mockMvc.perform(get("/auth/me").principal(principal).contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(userDto.getId()))
+            .andExpect(jsonPath("$.name").value(userDto.getName()))
+            .andExpect(jsonPath("$.username").value(userDto.getUsername()))
+            .andExpect(jsonPath("$.email").value(userDto.getEmail()))
+            .andExpect(jsonPath("$.password").doesNotExist())
+            .andExpect(jsonPath("$.role").value(userDto.getRole()));
+}
+
+============================================================================
+@Test
+public void addUserTest() throws Exception {
+    System.out.println("In Add user Test");
+
+    // Prepare test data
+    SignUpDto signUpDto = new SignUpDto();
+    signUpDto.setUsername("test");
+    signUpDto.setName("test");
+    signUpDto.setEmail("test@gmail.com");
+    signUpDto.setPassword("test@123");
+    String role = "ROLE_ADMIN";
+
+    Role rl = new Role(1L, "ROLE_ADMIN");
+    User user = new User();
+    user.setEmail(signUpDto.getEmail());
+    user.setPassword(encoder.encode(signUpDto.getPassword()));
+
+    // Stub methods of mocked dependencies
+    when(modelMapper.map(signUpDto, User.class)).thenReturn(user);
+    when(userRepo.existsByEmail(signUpDto.getEmail())).thenReturn(false);
+    when(roleRepo.findByName(role)).thenReturn(rl);
+
+    // Invoke method under test
+    String result = adminService.addUser(signUpDto, role);
+
+    // Verify behavior and assertions
+    assertEquals("User Added !!", result); // Assert expected result
+    verify(userRepo).save(any(User.class)); // Verify that userRepo.save() is called with any User object
+}
+
